@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Area, ComposedChart, ResponsiveContainer } from 'recharts';
 
 const defaultParams = {
@@ -93,8 +93,47 @@ const styles = {
 };
 
 function DamageCalculator() {
-  const [params1, setParams1] = useState(defaultParams);
-  const [params2, setParams2] = useState(defaultParams);
+  // Initialize state from URL query parameters or default values
+  const initializeFromQuery = () => {
+    const params = new URLSearchParams(window.location.search);
+    const build1 = { ...defaultParams };
+    const build2 = { ...defaultParams };
+
+    // Parse query parameters for both builds
+    params.forEach((value, key) => {
+      const [build, param] = key.split('_');
+      if (build === 'b1' && param in defaultParams) {
+        build1[param] = parseFloat(value);
+      } else if (build === 'b2' && param in defaultParams) {
+        build2[param] = parseFloat(value);
+      }
+    });
+
+    return { build1, build2 };
+  };
+
+  const initialState = initializeFromQuery();
+  const [params1, setParams1] = useState(initialState.build1);
+  const [params2, setParams2] = useState(initialState.build2);
+
+  // Update URL when parameters change
+  useEffect(() => {
+    const queryParams = new URLSearchParams();
+    
+    // Add parameters for build 1
+    Object.entries(params1).forEach(([key, value]) => {
+      queryParams.set(`b1_${key}`, value.toString());
+    });
+    
+    // Add parameters for build 2
+    Object.entries(params2).forEach(([key, value]) => {
+      queryParams.set(`b2_${key}`, value.toString());
+    });
+
+    // Update URL without reloading the page
+    const newUrl = `${window.location.pathname}?${queryParams.toString()}`;
+    window.history.pushState({ path: newUrl }, '', newUrl);
+  }, [params1, params2]);
 
   const calculateDamage = useCallback((strength, params, forceCrit = false) => {
     const percentIncreaseSum = 
@@ -130,17 +169,23 @@ function DamageCalculator() {
   };
 
   const data = Array.from({ length: 11 }, (_, i) => {
-    const strength = params1.baseStrength * (0.5 + i * 0.1);
-    const damage1Normal = calculateDamage(strength, params1, false);
-    const damage1Crit = calculateDamage(strength, params1, true);
-    const damage2Normal = calculateDamage(strength, params2, false);
-    const damage2Crit = calculateDamage(strength, params2, true);
+    // Calculate separate strength values for each build
+    const strength1 = params1.baseStrength * (0.5 + i * 0.1);
+    const strength2 = params2.baseStrength * (0.5 + i * 0.1);
+    
+    const damage1Normal = calculateDamage(strength1, params1, false);
+    const damage1Crit = calculateDamage(strength1, params1, true);
+    const damage2Normal = calculateDamage(strength2, params2, false);
+    const damage2Crit = calculateDamage(strength2, params2, true);
+    
     const percentDiff = (
       ((damage2Normal - damage1Normal) / damage1Normal) *
       100
     ).toFixed(2);
+    
     return {
-      strength,
+      strength1,
+      strength2,
       damage1Normal,
       damage1Crit,
       damage2Normal,
@@ -154,8 +199,13 @@ function DamageCalculator() {
       return (
         <div style={styles.tooltip}>
           <p style={{ ...styles.tooltipText, fontWeight: 'bold' }}>
-            Strength: {label}
+            Build 1 Strength: {Math.round(payload[0].payload.strength1)}
           </p>
+          {payload[0].payload.strength1 !== payload[0].payload.strength2 && (
+            <p style={{ ...styles.tooltipText, fontWeight: 'bold' }}>
+              Build 2 Strength: {Math.round(payload[0].payload.strength2)}
+            </p>
+          )}
           <p style={{ ...styles.tooltipText, color: '#8884d8' }}>
             Build 1 Normal: {payload[0].value.toFixed(0)}
           </p>
@@ -342,7 +392,12 @@ function DamageCalculator() {
         <ResponsiveContainer width="100%" height={400}>
           <ComposedChart data={data} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="strength" label={{ value: '', position: 'bottom' }} interval="preserveStartEnd" />
+            <XAxis 
+              dataKey="strength1" 
+              label={{ value: 'Strength', position: 'bottom' }} 
+              interval="preserveStartEnd" 
+              tickFormatter={(value) => Math.round(value)}
+            />
             <YAxis yAxisId="damage" label={{ value: 'Final Damage', angle: -90, position: 'insideLeft' }} interval="preserveStartEnd" />
             <YAxis yAxisId="percent" orientation="right" label={{ value: 'Difference %', angle: 90, position: 'insideRight' }} interval="preserveStartEnd" />
             <Tooltip content={<CustomTooltip />} />
